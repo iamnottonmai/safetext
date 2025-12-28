@@ -1,6 +1,13 @@
 import streamlit as st
 import torch
+import os
+import gdown
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+MODEL_DIR = "trained_model"
+MODEL_FILE = os.path.join(MODEL_DIR, "model.safetensors")
+
+GDRIVE_URL = "https://drive.google.com/uc?id=1LR421nKcA3S7QkIuF4yY6AVB45BistEl"
 
 LABELS = {
     0: "No Risk",
@@ -10,14 +17,21 @@ LABELS = {
 
 @st.cache_resource
 def load_model():
-    tokenizer = AutoTokenizer.from_pretrained("trained_model")
-    model = AutoModelForSequenceClassification.from_pretrained("trained_model")
+    # download model if missing
+    if not os.path.exists(MODEL_FILE):
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        with st.spinner("Downloading model weights..."):
+            gdown.download(GDRIVE_URL, MODEL_FILE, quiet=False)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
     model.eval()
+
     return tokenizer, model
 
 tokenizer, model = load_model()
 
-st.title("Thai Text Risk Classification")
+st.title("SafeText: Thai Legal Risk Classification")
 
 text = st.text_area("Enter Thai text")
 
