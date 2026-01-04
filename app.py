@@ -19,7 +19,6 @@ LABELS = {
 
 @st.cache_resource
 def load_model():
-    # Always rely on gdown, not repo files
     if not os.path.exists(MODEL_DIR):
         with st.spinner("Downloading model from Google Drive..."):
             gdown.download(GDRIVE_ZIP_URL, ZIP_PATH, quiet=False)
@@ -27,7 +26,11 @@ def load_model():
         with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
             zip_ref.extractall(MODEL_DIR)
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_DIR,
+        use_fast=False   # 🔥 critical fix
+    )
+
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
     model.eval()
 
