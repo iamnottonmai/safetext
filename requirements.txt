@@ -6,3 +6,4 @@ pythainlp
 accelerate==0.25.0
 streamlit
 gdown
+sentencepiece
