@@ -5,9 +5,11 @@ import zipfile
 import gdown
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_DIR = "trained_model"
-ZIP_PATH = "safetext_model.zip"
+# Runtime paths (created dynamically)
+MODEL_DIR = "model_runtime"
+ZIP_PATH = "model_runtime.zip"
 
+# Your gdown-compatible link
 GDRIVE_ZIP_URL = "https://drive.google.com/uc?id=1cyjqbVRAhOAogoUWY1_zhby9uy9VdSPR"
 
 LABELS = {
@@ -17,12 +19,13 @@ LABELS = {
 
 @st.cache_resource
 def load_model():
+    # Always rely on gdown, not repo files
     if not os.path.exists(MODEL_DIR):
-        with st.spinner("Downloading model..."):
+        with st.spinner("Downloading model from Google Drive..."):
             gdown.download(GDRIVE_ZIP_URL, ZIP_PATH, quiet=False)
 
         with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
-            zip_ref.extractall(".")
+            zip_ref.extractall(MODEL_DIR)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
@@ -32,6 +35,8 @@ def load_model():
 
 
 tokenizer, model = load_model()
+
+# ---------------- UI ----------------
 
 st.title("SafeText 🇹🇭")
 st.caption("Thai Defamation & Insult Risk Analyzer")
