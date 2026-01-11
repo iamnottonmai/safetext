@@ -17,11 +17,9 @@ LABELS = {
     1: "สุ่มเสี่ยง"
 }
 
-# คำที่ถือว่า "เสี่ยงทางภาษาแบบไม่ต้องตีความ"
-HIGH_CERTAINTY_ABUSE = {
-    "อีดอก", "อีเหี้ย", "อีสัตว์", "อีควาย",
-    "อีกระหรี่", "ไอ้สัตว์", "ไอ้ควาย"
-}
+# thresholds (ปรับได้)
+ABUSIVE_THRESHOLD = 0.20     # linguistic signal
+LEGAL_THRESHOLD = 0.50       # legal risk
 
 # ---------------- LOAD MODEL ----------------
 
@@ -45,24 +43,35 @@ def load_model():
 
 tokenizer, model = load_model()
 
-# ---------------- LOGIC ----------------
+# ---------------- DECISION LOGIC ----------------
 
-def detect_linguistic_risk(text: str):
-    matched = [w for w in HIGH_CERTAINTY_ABUSE if w in text]
-    return len(matched) > 0, matched
+def analyze(probs):
+    """
+    probs[1] = P(สุ่มเสี่ยง)
+    """
+    p_risk = probs[1]
 
+    linguistic_risk = p_risk >= ABUSIVE_THRESHOLD
+    legal_risk = p_risk >= LEGAL_THRESHOLD
 
-def final_decision(linguistic_risk, legal_label):
-    if linguistic_risk and legal_label == "สุ่มเสี่ยง":
-        return "สุ่มเสี่ยงสูง", "คำหยาบ + มีลักษณะเข้าข่ายกฎหมาย"
+    if linguistic_risk and legal_risk:
+        return "สุ่มเสี่ยงสูง", (
+            "ข้อความมีลักษณะก้าวร้าวและอาจเข้าข่ายความผิดทางกฎหมาย"
+        )
 
-    if linguistic_risk and legal_label == "ปลอดภัย":
-        return "คำไม่เหมาะสม", "พบคำหยาบ แต่ไม่เข้าข่ายความผิดทางกฎหมาย"
+    if linguistic_risk and not legal_risk:
+        return "คำไม่เหมาะสม", (
+            "ข้อความมีลักษณะก้าวร้าวหรือดูหมิ่น "
+            "แต่ยังไม่พบความเสี่ยงทางกฎหมายในบริบทนี้"
+        )
 
-    if not linguistic_risk and legal_label == "สุ่มเสี่ยง":
-        return "สุ่มเสี่ยง", "ไม่ใช้คำหยาบ แต่มีความเสี่ยงทางกฎหมาย"
+    if not linguistic_risk and legal_risk:
+        return "สุ่มเสี่ยง", (
+            "ข้อความอาจกระทบต่อชื่อเสียงหรือสิทธิของผู้อื่น "
+            "แม้ไม่ใช้ถ้อยคำรุนแรง"
+        )
 
-    return "ปลอดภัย", "ไม่พบความเสี่ยง"
+    return "ปลอดภัย", "ไม่พบความเสี่ยงจากข้อความนี้"
 
 # ---------------- UI ----------------
 
@@ -77,11 +86,8 @@ context = st.selectbox(
 
 if st.button("วิเคราะห์") and text.strip():
 
-    # 1️⃣ Linguistic signal
-    linguistic_risk, matched_terms = detect_linguistic_risk(text)
-
-    # 2️⃣ Model inference
     input_text = f"[CONTEXT] {context} [TEXT] {text}"
+
     inputs = tokenizer(
         input_text,
         return_tensors="pt",
@@ -92,14 +98,11 @@ if st.button("วิเคราะห์") and text.strip():
 
     with torch.no_grad():
         outputs = model(**inputs)
-        probs = torch.softmax(outputs.logits, dim=1)[0]
-        pred = probs.argmax().item()
-        legal_label = LABELS[pred]
+        probs = torch.softmax(outputs.logits, dim=1)[0].tolist()
 
-    # 3️⃣ Final decision
-    verdict, explanation = final_decision(linguistic_risk, legal_label)
+    verdict, explanation = analyze(probs)
 
-    # ---------------- OUTPUT ----------------
+    # -------- OUTPUT --------
 
     if verdict in ["สุ่มเสี่ยง", "สุ่มเสี่ยงสูง"]:
         st.error(f"ผลการวิเคราะห์: **{verdict}**")
@@ -110,9 +113,6 @@ if st.button("วิเคราะห์") and text.strip():
 
     st.write(explanation)
 
-    if linguistic_risk:
-        st.write("🔎 ตรวจพบคำไม่เหมาะสม:", ", ".join(matched_terms))
-
     st.write("📊 ความมั่นใจของโมเดล:")
-    for i, p in enumerate(probs):
-        st.write(f"- {LABELS[i]}: {p:.2%}")
+    st.write(f"- ปลอดภัย: {probs[0]:.2%}")
+    st.write(f"- สุ่มเสี่ยง: {probs[1]:.2%}")
