@@ -6,10 +6,8 @@ import gdown
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # ---------------- CONFIG ----------------
-
 MODEL_DIR = "model_runtime"
 ZIP_PATH = "model_runtime.zip"
-
 GDRIVE_ZIP_URL = "https://drive.google.com/uc?id=1cyjqbVRAhOAogoUWY1_zhby9uy9VdSPR"
 
 LABELS = {
@@ -17,19 +15,18 @@ LABELS = {
     1: "สุ่มเสี่ยง"
 }
 
-# thresholds (ปรับได้)
-ABUSIVE_THRESHOLD = 0.20     # linguistic signal
-LEGAL_THRESHOLD = 0.50       # legal risk
+# optional heuristic list (NOT decision)
+PROFANITY_HINTS = [
+    "อี", "ไอ้", "เหี้ย", "ควาย", "สัตว์", "ดอก"
+]
 
 # ---------------- LOAD MODEL ----------------
-
 @st.cache_resource
 def load_model():
     if not os.path.exists(MODEL_DIR):
-        with st.spinner("Downloading model..."):
-            gdown.download(GDRIVE_ZIP_URL, ZIP_PATH, quiet=False)
-            with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
-                zip_ref.extractall(MODEL_DIR)
+        gdown.download(GDRIVE_ZIP_URL, ZIP_PATH, quiet=False)
+        with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
+            zip_ref.extractall(MODEL_DIR)
 
     tokenizer = AutoTokenizer.from_pretrained(
         MODEL_DIR,
@@ -37,55 +34,36 @@ def load_model():
     )
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
     model.eval()
-
     return tokenizer, model
 
 
 tokenizer, model = load_model()
 
-# ---------------- DECISION LOGIC ----------------
-
-def analyze(probs):
-    """
-    probs[1] = P(สุ่มเสี่ยง)
-    """
-    p_risk = probs[1]
-
-    linguistic_risk = p_risk >= ABUSIVE_THRESHOLD
-    legal_risk = p_risk >= LEGAL_THRESHOLD
-
-    if linguistic_risk and legal_risk:
-        return "สุ่มเสี่ยงสูง", (
-            "ข้อความมีลักษณะก้าวร้าวและอาจเข้าข่ายความผิดทางกฎหมาย"
-        )
-
-    if linguistic_risk and not legal_risk:
-        return "คำไม่เหมาะสม", (
-            "ข้อความมีลักษณะก้าวร้าวหรือดูหมิ่น "
-            "แต่ยังไม่พบความเสี่ยงทางกฎหมายในบริบทนี้"
-        )
-
-    if not linguistic_risk and legal_risk:
-        return "สุ่มเสี่ยง", (
-            "ข้อความอาจกระทบต่อชื่อเสียงหรือสิทธิของผู้อื่น "
-            "แม้ไม่ใช้ถ้อยคำรุนแรง"
-        )
-
-    return "ปลอดภัย", "ไม่พบความเสี่ยงจากข้อความนี้"
-
 # ---------------- UI ----------------
-
 st.title("SafeText 🇹🇭")
-st.caption("Thai Defamation & Insult Risk Analyzer")
+st.caption("Thai Legal Risk Analyzer")
 
-text = st.text_area("ข้อความ")
+text = st.text_area("ข้อความที่ต้องการตรวจสอบ")
 context = st.selectbox(
-    "บริบท",
+    "บริบทการสื่อสาร",
     ["public_post", "private_dm", "email", "letter"]
 )
 
 if st.button("วิเคราะห์") and text.strip():
 
+    # ---------- BOX 1: LANGUAGE NOTE ----------
+    found_hints = [w for w in PROFANITY_HINTS if w in text]
+
+    st.subheader("🗣️ การใช้ถ้อยคำ")
+    if found_hints:
+        st.warning(
+            "ตรวจพบถ้อยคำที่อาจไม่เหมาะสม "
+            "(ยังไม่ถือว่าเป็นความเสี่ยงทางกฎหมาย)"
+        )
+    else:
+        st.success("ไม่พบถ้อยคำรุนแรงชัดเจน")
+
+    # ---------- BOX 2: AI LEGAL RISK ----------
     input_text = f"[CONTEXT] {context} [TEXT] {text}"
 
     inputs = tokenizer(
@@ -98,21 +76,12 @@ if st.button("วิเคราะห์") and text.strip():
 
     with torch.no_grad():
         outputs = model(**inputs)
-        probs = torch.softmax(outputs.logits, dim=1)[0].tolist()
+        probs = torch.softmax(outputs.logits, dim=1)[0]
+        pred = probs.argmax().item()
 
-    verdict, explanation = analyze(probs)
+    st.subheader("⚖️ ผลการวิเคราะห์ความเสี่ยง")
+    st.info(f"ผลลัพธ์: **{LABELS[pred]}**")
 
-    # -------- OUTPUT --------
-
-    if verdict in ["สุ่มเสี่ยง", "สุ่มเสี่ยงสูง"]:
-        st.error(f"ผลการวิเคราะห์: **{verdict}**")
-    elif verdict == "คำไม่เหมาะสม":
-        st.warning(f"ผลการวิเคราะห์: **{verdict}**")
-    else:
-        st.success(f"ผลการวิเคราะห์: **{verdict}**")
-
-    st.write(explanation)
-
-    st.write("📊 ความมั่นใจของโมเดล:")
-    st.write(f"- ปลอดภัย: {probs[0]:.2%}")
-    st.write(f"- สุ่มเสี่ยง: {probs[1]:.2%}")
+    st.write("ความเชื่อมั่นของโมเดล:")
+    for i, p in enumerate(probs):
+        st.write(f"- {LABELS[i]}: {p:.2%}")
